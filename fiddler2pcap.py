@@ -1,23 +1,25 @@
-#!/usr/bin/python
+#!/usr/bin/python3
 # This is probably useful to like 4 people. Some of the packet inection stuff is taken from rule2alert https://code.google.com/p/rule2alert/ which is GPLv2 so I guess this is well.
 # This ultra alpha if everything isn't right it will fall on its face and probably cause you to run away from it screaming into the night
 
 #TODO:
-# 1. Optionally trim request line to start with uripath 
+# 1. Optionally trim request line to start with uripath
 # 2. Better error checking... Well any error checking really.
 
-import random
-import os
-import sys
-import re
-import zipfile
-import tempfile
-import shutil
-from xml.dom.minidom import parse, parseString
-from scapy.utils import PcapWriter
-from scapy.all import *
 import glob
+import os
+import random
+import re
+import shutil
+import sys
+import tempfile
+import zipfile
 from optparse import OptionParser
+from xml.dom.minidom import parse, parseString
+
+from scapy.layers.inet import IP, TCP
+from scapy.packet import Raw
+from scapy.utils import PcapWriter
 
 parser = OptionParser()
 parser.add_option("-i", dest="input_target", type="string", help="path to fiddler raw directory we will read from glob format or path to saz file with --saz option")
@@ -34,22 +36,22 @@ def validate_ip(ip):
     if re.match(r"^(?:(?:25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)\.){3}(?:25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)$",ip) != None:
         return True
     else:
-        print "The ip address you provides is invalid %s exiting" % (ip)
+        print("The ip address you provides is invalid %s exiting" % (ip))
         sys.exit(-1)
 
 
 (options, args) = parser.parse_args()
 if options == []:
-   print parser.print_help()
+   print(parser.print_help())
    sys.exit(-1)
 if not options.input_target or options.input_target == "":
-   print parser.print_help()
+   print(parser.print_help())
    sys.exit(-1)
 if not options.output_pcap or options.output_pcap == "":
-   print parser.print_help()
+   print(parser.print_help())
    sys.exit(-1)
 if options.srcip and validate_ip(options.srcip):
-   src = options.srcip 
+   src = options.srcip
 if options.dstip and validate_ip(options.dstip):
    dst = options.dstip
 
@@ -90,11 +92,11 @@ def chunkstring(string, length):
     return (string[0+i:length+i] for i in range(0, len(string), length))
 
 def make_poop(src,dst,sport,dport,seq,ack,payload):
-    segments = [] 
+    segments = []
     if len(payload) > 1460:
         segments=chunkstring(payload,1460)
     else:
-        segments.append(payload)    
+        segments.append(payload)
     ipsrc   = src
     ipdst   = dst
     portsrc = sport
@@ -112,31 +114,31 @@ if options.input_is_saz and os.path.isfile(options.input_target):
     try:
         options.tmpdir = tempfile.mkdtemp()
     except:
-        print "failed to create temp directory for saz extraction"
+        print("failed to create temp directory for saz extraction")
         sys.exit(-1)
     try:
         z = zipfile.ZipFile(options.input_target,"r")
     except:
-        print "failed to open saz file %s" % (options.input_target)
+        print("failed to open saz file %s" % (options.input_target))
         sys.exit(-1)
     try:
        z.extractall(options.tmpdir)
        z.close()
     except:
-       print "failed to extract saz file %s to %s" % (options.input_target, options.tmpdir)
+       print("failed to extract saz file %s to %s" % (options.input_target, options.tmpdir))
        sys.exit(-1)
     if os.path.isdir("%s/raw/" % (options.tmpdir)):
        options.fiddler_raw_dir = "%s/raw/" % (options.tmpdir)
     else:
-       print "failed to find raw directory in extracted files %s/raw (must remove tmp file yourself)" % (options.tmpdir)
+       print("failed to find raw directory in extracted files %s/raw (must remove tmp file yourself)" % (options.tmpdir))
        sys.exit(-1)
-    
+
 elif os.path.isdir(options.input_target):
     options.fiddler_raw_dir = options.input_target
     options.tmpdir = None
 
 if os.path.isdir(options.fiddler_raw_dir):
-    m_file_list=glob.glob("%s/%s" % (options.fiddler_raw_dir,"*_m.xml")) 
+    m_file_list=glob.glob("%s/%s" % (options.fiddler_raw_dir,"*_m.xml"))
     m_file_list.sort()
     for xml_file in m_file_list:
         sport=""
@@ -148,7 +150,7 @@ if os.path.isdir(options.fiddler_raw_dir):
         else:
             print("failed to get fiddler id tag")
             sys.exit(-1)
-        
+
         xmlTags = dom.getElementsByTagName('SessionFlag')
         for xmlTag in xmlTags:
             xmlTag = xmlTag.toxml()
@@ -160,26 +162,26 @@ if os.path.isdir(options.fiddler_raw_dir):
                 src = m.group("clientip")
             elif m and m.group("hostip") and dst == None:
                 dst = m.group("hostip")
-        req = open(options.fiddler_raw_dir + fid + "_c.txt").read()
-        m=re.match(r"^[^\r\n\s]+\s+(?P<host_and_port>https?\:\/\/[^\/\r\n\:]+(\:(?P<dport>\d{1,5}))?)\/",req)
+        req = open(options.fiddler_raw_dir + fid + "_c.txt", 'rb').read()
+        m=re.match(rb"^[^\r\n\s]+\s+(?P<host_and_port>https?\:\/\/[^\/\r\n\:]+(\:(?P<dport>\d{1,5}))?)\/",req)
         if m and options.dproxy and m.group("host_and_port"):
-            req = req.replace(m.group("host_and_port"),"",1)
+            req = req.replace(m.group("host_and_port"),b"",1)
             if m.group("dport") and int(m.group("dport")) <= 65535:
                 dport = int(m.group("dport"))
-        resp = open(options.fiddler_raw_dir + fid + "_s.txt").read()
-        print "src: %s dst: %s sport: %s dport: %s" % (src, dst, sport, dport)
+        resp = open(options.fiddler_raw_dir + fid + "_s.txt", 'rb').read()
+        print("src: %s dst: %s sport: %s dport: %s" % (src, dst, sport, dport))
         (seq,ack)=build_handshake(src,dst,sport,dport)
         (seq,ack)=make_poop(src,dst,sport,dport,seq,ack,req)
         (seq,ack)=make_poop(dst,src,dport,sport,seq,ack,resp)
         build_finshake(src,dst,sport,dport,seq,ack)
-   
-    if options.tmpdir: 
+
+    if options.tmpdir:
         try:
             shutil.rmtree(options.tmpdir)
         except:
-            print "failed to clean up tmpdir %s you will have to do it" % (options.tmpdir)
+            print("failed to clean up tmpdir %s you will have to do it" % (options.tmpdir))
 else:
-    print "fiddler raw dir specified:%s dos not exist" % (options.fiddler_raw_dir)
+    print("fiddler raw dir specified:%s dos not exist" % (options.fiddler_raw_dir))
     sys.exit(-1)
 
 pktdump.close()
